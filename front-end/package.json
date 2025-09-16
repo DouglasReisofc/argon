@@ -22,16 +22,17 @@
   "bugs": {
     "url": "https://github.com/creativetimofficial/argon-dashboard-react/issues"
   },
-  "homepage": "https://demos.creative-tim.com/argon-dashboard-react/",
+  "homepage": ".",
   "scripts": {
     "start": "react-scripts start",
     "build": "react-scripts build",
     "test": "react-scripts test",
     "eject": "react-scripts eject",
+    "postinstall": "npx browserslist@latest --update-db || true",
     "install:clean": "rm -rf node_modules/ && rm -rf package-lock.json && npm install && npm start",
-    "compile-sass": "node-sass src/assets/scss/argon-dashboard-react.scss src/assets/css/argon-dashboard-react.css",
-    "minify-sass": "node-sass src/assets/scss/argon-dashboard-react.scss src/assets/css/argon-dashboard-react.min.css --output-style compressed",
-    "map-sass": "node-sass src/assets/scss/argon-dashboard-react.scss src/assets/css/argon-dashboard-react.css --source-map true"
+    "compile-sass": "sass src/assets/scss/argon-dashboard-react.scss src/assets/css/argon-dashboard-react.css",
+    "minify-sass": "sass src/assets/scss/argon-dashboard-react.scss src/assets/css/argon-dashboard-react.min.css --style=compressed",
+    "map-sass": "sass --source-map src/assets/scss/argon-dashboard-react.scss src/assets/css/argon-dashboard-react.css"
   },
   "eslintConfig": {
     "extends": "react-app"
@@ -49,27 +50,31 @@
     "chart.js": "2.9.3",
     "classnames": "2.2.6",
     "moment": "2.24.0",
-    "node-sass": "4.13.1",
+    "sass": "^1.77.6",
     "nouislider": "14.1.1",
-    "react": "16.12.0",
+    "react": "^17.0.2",
     "react-bootstrap": "^1.4.0",
-    "react-chartjs-2": "2.9.0",
-    "react-copy-to-clipboard": "5.0.2",
+    "react-chartjs-2": "2.11.1",
+    "react-copy-to-clipboard": "5.1.0",
     "react-datetime": "2.16.3",
-    "react-dom": "16.12.0",
-    "react-google-maps": "9.4.5",
+    "react-dom": "^17.0.2",
+    "@react-google-maps/api": "^2.20.1",
     "react-router": "^5.2.0",
     "react-router-dom": "5.1.2",
-    "react-scripts": "^4.0.1",
-    "reactstrap": "8.4.1"
+    "react-scripts": "5.0.1",
+    "reactstrap": "9.2.2"
   },
   "devDependencies": {
     "@types/googlemaps": "3.39.2",
     "@types/markerclustererplus": "2.1.33",
     "@types/react": "16.9.19",
-    "eslint-plugin-flowtype": "3.13.0",
+    "eslint-config-react-app": "^6.0.0",
     "gulp": "4.0.2",
     "gulp-append-prepend": "1.0.8",
-    "typescript": "3.7.5"
+    "typescript": "3.7.5",
+    "autoprefixer": "^10.4.19",
+    "postcss": "^8.4.38",
+    "postcss-loader": "^6.2.1",
+    "postcss-safe-parser": "^6.0.0"
   }
 }

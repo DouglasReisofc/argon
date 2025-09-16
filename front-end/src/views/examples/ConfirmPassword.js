@@ -15,47 +15,66 @@
 * The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
 
 */
-import React, {useState} from "react";
+import React, {useEffect, useState} from "react";
 
 // reactstrap components
 import {
     Button,
     Card,
-    CardHeader,
     CardBody,
     FormGroup,
     Form,
     Input,
-    InputGroupAddon,
     InputGroupText,
     InputGroup,
-    Row,
     Col
 } from "reactstrap";
-import {confirmReset, forgotPassword, login} from "../../network/ApiAxios";
-import Toast from "react-bootstrap/Toast";
-import {useParams} from "react-router-dom";
+import {confirmReset} from "../../network/ApiAxios";
+import {useLocation, useParams} from "react-router-dom";
 
 const ConfirmPassword = props => {
 
     const {id} = useParams();
+    const location = useLocation();
 
     const [password, setPassword] = useState("");
     const [confirmPassword, setConfirmPassword] = useState("");
+    const [code, setCode] = useState("");
     const [error, setError] = useState("");
+    const [isSubmitting, setIsSubmitting] = useState(false);
+
+    useEffect(() => {
+        const params = new URLSearchParams(location.search);
+        const codeFromQuery = params.get('code');
+        if (codeFromQuery) {
+            setCode(codeFromQuery);
+        }
+    }, [location.search]);
 
     const confirm = async () => {
         if (password !== confirmPassword) {
             setError("Passwords have to match");
             return;
         }
-        const response = await confirmReset(id, password);
+        if (!code) {
+            setError("Please provide the reset code from your email");
+            return;
+        }
+        setIsSubmitting(true);
+        const response = await confirmReset(id, password, code);
         const {data} = response;
         if (data.success) {
             props.history.push("/auth/reset-success");
+        } else if (data.msg) {
+            if (Array.isArray(data.msg)) {
+                setError(data.msg[0]?.msg || "Unable to reset password");
+            } else {
+                setError(data.msg);
+            }
         } else {
-            setError(data.msg);
+            setError("Unable to reset password");
         }
+        setIsSubmitting(false);
     }
 
     return (
@@ -66,11 +85,19 @@ const ConfirmPassword = props => {
                         <Form role="form">
                             <FormGroup>
                                 <InputGroup className="input-group-alternative">
-                                    <InputGroupAddon addonType="prepend">
-                                        <InputGroupText>
-                                            <i className="ni ni-lock-circle-open"/>
-                                        </InputGroupText>
-                                    </InputGroupAddon>
+                                    <InputGroupText>
+                                        <i className="ni ni-email-83"/>
+                                    </InputGroupText>
+                                    <Input placeholder="Reset code" type="text" autoComplete="one-time-code" value={code}
+                                           onChange={e => setCode(e.target.value)}
+                                    />
+                                </InputGroup>
+                            </FormGroup>
+                            <FormGroup>
+                                <InputGroup className="input-group-alternative">
+                                    <InputGroupText>
+                                        <i className="ni ni-lock-circle-open"/>
+                                    </InputGroupText>
                                     <Input placeholder="Password" type="password" autoComplete="new-password" value={password}
                                            onChange={e => setPassword(e.target.value)}
                                     />
@@ -78,11 +105,9 @@ const ConfirmPassword = props => {
                             </FormGroup>
                             <FormGroup>
                                 <InputGroup className="input-group-alternative">
-                                    <InputGroupAddon addonType="prepend">
-                                        <InputGroupText>
-                                            <i className="ni ni-lock-circle-open"/>
-                                        </InputGroupText>
-                                    </InputGroupAddon>
+                                    <InputGroupText>
+                                        <i className="ni ni-lock-circle-open"/>
+                                    </InputGroupText>
                                     <Input placeholder="Confirm Password" type="password" autoComplete="new-password" value={confirmPassword}
                                            onChange={e => setConfirmPassword(e.target.value)}
                                     />
@@ -96,8 +121,8 @@ const ConfirmPassword = props => {
                                     </small>
                                 </div> : null }
                             <div className="text-center">
-                                <Button className="my-4" color="primary" type="button" onClick={confirm}>
-                                    Reset Password
+                                <Button className="my-4" color="primary" type="button" onClick={confirm} disabled={isSubmitting}>
+                                    {isSubmitting ? 'Working...' : 'Reset Password'}
                                 </Button>
                             </div>
                         </Form>

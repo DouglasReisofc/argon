@@ -17,18 +17,22 @@
 * The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
 
 */
-dbPasswordDev ='mongodb://localhost/boilerplate';
+const mysql = require('mysql2/promise');
 
-// for PRODUCTION
-// const MONGO_USERNAME = 'sammy';
-// const MONGO_PASSWORD = 'your_password';
-// const MONGO_HOSTNAME = '127.0.0.1';
-// const MONGO_PORT = '27017';
-// const MONGO_DB = 'sharkinfo';
+const dbConfig = {
+  host: process.env.DB_HOST || '150.230.85.70',
+  user: process.env.DB_USER || 'react',
+  password: process.env.DB_PASSWORD || 'react',
+  database: process.env.DB_NAME || 'react',
+  waitForConnections: true,
+  connectionLimit: Number(process.env.DB_CONN_LIMIT) || 10,
+  queueLimit: 0,
+};
 
-// const url = `mongodb://${MONGO_USERNAME}:${MONGO_PASSWORD}@${MONGO_HOSTNAME}:${MONGO_PORT}/${MONGO_DB}?authSource=admin`;
+const mysqlPool = mysql.createPool(dbConfig);
 
 module.exports = {
-  mongoURI: dbPasswordDev,
-  secret: 'yourSecretKey',
+  dbConfig,
+  mysqlPool,
+  secret: process.env.JWT_SECRET || 'yourSecretKey',
 };

@@ -18,20 +18,26 @@
 
 */
 const ActiveSession = require('../models/activeSession');
-const User = require('../models/user');
+const VerificationCode = require('../models/verificationCode');
+const {createLog} = require('../models/auditLog');
 
 module.exports = {
-  tokensCleanUp: function() {
-    const date = new Date();
-    const daysToDelete = 1;
-    const deletionDate = new Date(date.setDate(date.getDate() - daysToDelete));
-    ActiveSession.deleteMany({date: {$lt: deletionDate}}, function(err, item) {
-      return;
-    });
+  tokensCleanUp: async function() {
+    try {
+      const date = new Date();
+      const daysToDelete = 1;
+      const deletionDate = new Date(date.setDate(date.getDate() - daysToDelete));
 
-    User.deleteMany({email: {$ne: 'test@test.com'}}, function(err, item) {
-      return;
-    });
+      await ActiveSession.deleteOlderThan(deletionDate);
+      await VerificationCode.deleteExpired();
+      await createLog({
+        userId: null,
+        action: 'system.cleanup',
+        details: 'Removed expired sessions and verification codes',
+      });
+    } catch (err) {
+      console.log('Error running cleanup cron', err);
+    }
   },
 };
 

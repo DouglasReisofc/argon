@@ -31,7 +31,6 @@ import {
     Col
 } from "reactstrap";
 // core components
-import UserHeader from "components/Headers/UserHeader.js";
 import EditHeader from "../../components/Headers/EditHeader";
 import {edit} from "../../network/ApiAxios";
 

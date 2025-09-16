@@ -21,18 +21,15 @@ import React, {useState} from "react";
 import {
     Button,
     Card,
-    CardHeader,
     CardBody,
     FormGroup,
     Form,
     Input,
-    InputGroupAddon,
     InputGroupText,
     InputGroup,
-    Row,
     Col
 } from "reactstrap";
-import {forgotPassword, login} from "../../network/ApiAxios";
+import {forgotPassword} from "../../network/ApiAxios";
 import Toast from "react-bootstrap/Toast";
 import config from "../../config";
 
@@ -43,19 +40,27 @@ const ResetPassword = props => {
     const [showToast, setShowToast] = useState(false);
     const [toastMessage, setToastMessage] = useState("Email sent! Check it to reset your password.");
     const [userID, setUserID] = useState(null);
+    const [resetCode, setResetCode] = useState(null);
 
     const sendEmail = async () => {
         const response = await forgotPassword(email);
         const {data} = response;
         if (data.success) {
-            console.log(data);
             if (config.DEMO) {
-                setToastMessage("This is a demo, so we will not send you an email. Instead, click on this link to reset your password:")
+                setToastMessage("This is a demo, so we will not send you an email. Instead, use the information below to reset your password:")
                 setUserID(data.userID);
+                setResetCode(data.resetCode);
+            } else {
+                setToastMessage("Email sent! Check it to reset your password.");
+                setResetCode(null);
+                setUserID(null);
             }
             setShowToast(true);
-        } else {
+            setError("");
+        } else if (data?.errors && data.errors.length > 0) {
             setError(data.errors[0].msg);
+        } else {
+            setError("Unable to process the request");
         }
     }
 
@@ -85,11 +90,22 @@ const ResetPassword = props => {
                         <img style={{height: "30px", width: "100px"}} src={require("assets/img/brand/argon-react.png").default}  alt="..."/>
                     </Toast.Header>
                     <Toast.Body>
-                        {toastMessage}
-                        {config.DEMO ?
-                            <a href={config.DOMAIN_NAME + '/auth/confirm-password/' + userID}>
-                                {config.DOMAIN_NAME + '/auth/confirm-password/' + userID}
-                            </a> : null}
+                        <div>{toastMessage}</div>
+                        {config.DEMO && userID ? (
+                            <>
+                                <div className="mt-2">
+                                    <strong>Link:</strong>{' '}
+                                    <a href={config.DOMAIN_NAME + '/auth/confirm-password/' + userID}>
+                                        {config.DOMAIN_NAME + '/auth/confirm-password/' + userID}
+                                    </a>
+                                </div>
+                                {resetCode ? (
+                                    <div className="mt-2">
+                                        <strong>Reset code:</strong> {resetCode}
+                                    </div>
+                                ) : null}
+                            </>
+                        ) : null}
                     </Toast.Body>
                 </Toast>
             </div>
@@ -99,11 +115,9 @@ const ResetPassword = props => {
                         <Form role="form">
                             <FormGroup className="mb-3">
                                 <InputGroup className="input-group-alternative">
-                                    <InputGroupAddon addonType="prepend">
-                                        <InputGroupText>
-                                            <i className="ni ni-email-83"/>
-                                        </InputGroupText>
-                                    </InputGroupAddon>
+                                    <InputGroupText>
+                                        <i className="ni ni-email-83"/>
+                                    </InputGroupText>
                                     <Input placeholder="Email" type="email" autoComplete="email" value={email}
                                            onChange={e => setEmail(e.target.value)}/>
                                 </InputGroup>

@@ -26,16 +26,16 @@ export const register = async (name, email, password, phone, agency, role) => (
     await instance.post('users/register', {name, email, password, phone, agency, role})
 );
 
-export const confirmRegister = async id => (
-    await instance.post(`users/confirm/${id}`)
+export const confirmRegister = async (id, code) => (
+    await instance.post(`users/confirm/${id}`, {code})
 );
 
 export const forgotPassword = async email => (
     await instance.post('users/forgotpassword', {email})
 );
 
-export const confirmReset = async (id, password) => (
-    await instance.post(`users/resetpass/${id}`, {password})
+export const confirmReset = async (id, password, code) => (
+    await instance.post(`users/resetpass/${id}`, {password, code})
 );
 
 export const login = async (email, password) => (

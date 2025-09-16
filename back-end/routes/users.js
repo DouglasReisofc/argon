@@ -20,194 +20,289 @@
 const express = require('express');
 // eslint-disable-next-line new-cap
 const router = express.Router();
-const bcrypt = require('bcrypt-nodejs');
+const bcrypt = require('bcryptjs');
 const nodemailer = require('nodemailer');
 const jwt = require('jsonwebtoken');
-const config = require('../config/keys');
+const {secret} = require('../config/keys');
 const User = require('../models/user');
 const ActiveSession = require('../models/activeSession');
-const reqAuth = require('../config/safeRoutes').reqAuth;
-const {smtpConf} = require('../config/config');
+const {reqAuth, requireAdmin} = require('../config/safeRoutes');
+const {smtpConf, clientAppUrl} = require('../config/config');
+const VerificationCode = require('../models/verificationCode');
+const {createLog} = require('../models/auditLog');
+
+const {PURPOSES} = VerificationCode;
+const APP_NAME = process.env.APP_NAME || 'GestorVIP';
+const CLIENT_URL = (clientAppUrl || 'http://localhost:3000').replace(/\/$/, '');
+const IS_DEMO = (process.env.DEMO || '').toLowerCase() === 'yes';
+
+/**
+ * Create a nodemailer transporter using the configured SMTP settings.
+ * @return {Object} transporter instance.
+ */
+function buildTransporter() {
+  return nodemailer.createTransport(smtpConf);
+}
+
+/**
+ * Send an email using the configured transporter.
+ * @param {Object} message email message payload.
+ * @param {string} message.to destination email address.
+ * @param {string} message.subject email subject.
+ * @param {string} message.html html body.
+ * @return {Promise<void>} promise.
+ */
+async function sendEmail({to, subject, html}) {
+  const transporter = buildTransporter();
+  await transporter.sendMail({
+    from: `"${APP_NAME}" <${smtpConf.auth.user}>`,
+    to,
+    subject,
+    html,
+  });
+}
+
+/**
+ * Remove sensitive fields from a user object before returning to clients.
+ * @param {Object} user user payload.
+ * @return {Object} sanitized user payload.
+ */
+function sanitizeUserForResponse(user) {
+  if (!user) {
+    return user;
+  }
+  const sanitized = {...user};
+  sanitized.password = undefined;
+  return sanitized;
+}
+
 // route /admin/users/
-
-router.post('/all', reqAuth, function(req, res) {
-  User.find({}, function(err, users) {
-    if (err) {
-      res.json({success: false});
-    }
-    users = users.map(function(item) {
-      const x = item;
-      x.password = undefined;
-      x.__v = undefined;
-      return x;
-    });
-    res.json({success: true, users: users});
-  });
+router.post('/all', reqAuth, requireAdmin, async function(req, res) {
+  try {
+    const users = await User.findAll();
+    const sanitizedUsers = users.map(sanitizeUserForResponse);
+    await createLog({userId: req.user._id, action: 'admin.users.list'});
+    res.json({success: true, users: sanitizedUsers});
+  } catch (err) {
+    console.log('Error fetching users', err);
+    res.status(500).json({success: false, msg: 'Unable to fetch users'});
+  }
 });
 
-router.post('/edit', reqAuth, function(req, res) {
+router.post('/edit', reqAuth, async function(req, res) {
   const {userID, name, email} = req.body;
+  if (!userID || !name || !email) {
+    return res.status(400).json({success: false, msg: 'Please enter all fields'});
+  }
 
-  User.find({_id: userID}).then((user) => {
-    if (user.length == 1) {
-      const query = {_id: user[0]._id};
-      const newvalues = {$set: {name: name, email: email}};
-      User.updateOne(query, newvalues, function(err, cb) {
-        if (err) {
-          // eslint-disable-next-line max-len
-          res.json({success: false, msg: 'There was an error. Please contract the administator'});
-        }
-        res.json({success: true});
-      });
-    } else {
-      res.json({success: false});
+  if (String(req.user._id) !== String(userID) && req.user.role !== 'admin') {
+    return res.status(403).json({success: false, msg: 'Not authorized to edit this user'});
+  }
+
+  try {
+    const user = await User.findById(userID);
+    if (!user) {
+      return res.status(404).json({success: false, msg: 'User not found'});
     }
-  });
+
+    const existingEmailOwner = await User.findByEmail(email);
+    if (existingEmailOwner && String(existingEmailOwner._id) !== String(userID)) {
+      return res.json({success: false, msg: 'Email already exists'});
+    }
+
+    const updated = await User.updateById(user._id, {name, email});
+    if (!updated) {
+      return res.status(500).json({success: false, msg: 'There was an error updating the user'});
+    }
+
+    await createLog({userId: userID, action: 'user.profile.update'});
+    return res.json({success: true});
+  } catch (err) {
+    console.log('Error updating user', err);
+    return res.status(500).json({success: false, msg: 'There was an error updating the user'});
+  }
 });
 
-
-router.post('/check/resetpass/:id', (req, res) => {
+router.post('/check/resetpass/:id', async (req, res) => {
   const userID = req.params.id;
-  User.find({_id: userID}).then((user) => {
-    if (user.length == 1 && user[0].resetPass == true) {
-      res.json({success: true}); // reset password was made for this user
-    } else {
-      res.json({success: false});
+  try {
+    const user = await User.findById(userID);
+    const hasResetCode = await VerificationCode.hasActiveCode(userID, PURPOSES.PASSWORD_RESET);
+    if (user && user.resetPass === true && hasResetCode) {
+      return res.json({success: true});
     }
-  });
+  } catch (err) {
+    console.log('Error checking reset password flag', err);
+  }
+  return res.json({success: false});
 });
 
-router.post('/resetpass/:id', (req, res) => {
+router.post('/resetpass/:id', async (req, res) => {
+  const userID = req.params.id;
+  const {password, code} = req.body;
   const errors = [];
-  const userID = req.params.id;
 
-  let {password} = req.body;
-
-  if (password.length < 6) {
-    errors.push({msg: 'Password must be at least 6 characters'});
+  if (!password || password.length < 8) {
+    errors.push({msg: 'Password must be at least 8 characters'});
+  }
+  if (!code) {
+    errors.push({msg: 'A valid reset code is required'});
   }
   if (errors.length > 0) {
-    res.json({success: false, msg: errors});
-  } else {
-    const query = {_id: userID};
-    bcrypt.genSalt(10, (err, salt) => {
-      bcrypt.hash(password, salt, null, (err, hash) => {
-        if (err) throw err;
-        password = hash;
-        const newvalues = {$set: {resetPass: false, password: password}};
-        User.updateOne(query, newvalues, function(err, usr) {
-          if (err) {
-            res.json({success: false, msg: err});
-          }
-          res.json({success: true});
-        });
-      });
-    });
+    return res.status(400).json({success: false, msg: errors});
+  }
+
+  try {
+    const isValid = await VerificationCode.consumeCode(userID, PURPOSES.PASSWORD_RESET, code);
+    if (!isValid) {
+      return res.status(400).json({success: false, msg: 'Invalid or expired reset code'});
+    }
+
+    const hash = await bcrypt.hash(password, 12);
+    const updated = await User.updateById(userID, {resetPass: false, password: hash});
+    if (!updated) {
+      return res.status(500).json({success: false, msg: 'There was an error resetting the password'});
+    }
+
+    await createLog({userId: userID, action: 'user.password_reset.complete'});
+    return res.json({success: true});
+  } catch (err) {
+    console.log('Error resetting password', err);
+    return res.status(500).json({success: false, msg: 'There was an error resetting the password'});
   }
 });
 
-router.post('/forgotpassword', (req, res) => {
+router.post('/forgotpassword', async (req, res) => {
   const {email} = req.body;
-  const errors = [];
-
   if (!email) {
-    errors.push({msg: 'Please enter all fields'});
+    return res.status(400).json({success: false, errors: [{msg: 'Please enter all fields'}]});
   }
-  User.find({email: email}).then((user) => {
-    if (user.length != 1) {
-      errors.push({msg: 'Email Address does not exist'});
+
+  try {
+    const user = await User.findByEmail(email);
+    if (!user) {
+      return res.json({success: false, errors: [{msg: 'Email address does not exist'}]});
     }
-    if (errors.length > 0) {
-      res.json({success: false, errors: errors});
-    } else {
-      // create reusable transporter object using the default SMTP transport
-      const transporter = nodemailer.createTransport(smtpConf);
 
-      const query = {_id: user[0]._id};
-      const newvalues = {$set: {resetPass: true}};
-      User.updateOne(query, newvalues, function(err, usr) {});
+    await User.updateById(user._id, {resetPass: true});
+    const {code} = await VerificationCode.createCode(user._id, PURPOSES.PASSWORD_RESET, 30);
+    const resetLink = `${CLIENT_URL}/auth/confirm-password/${user._id}?code=${code}`;
 
-      // don't send emails if it is in demo mode
-      if (process.env.DEMO != 'yes') {
-        // send mail with defined transport object
-        transporter.sendMail({
-          from: '"Creative Tim" <' + smtpConf.auth.user + '>', // sender address
-          to: email, // list of receivers
-          subject: 'Creative Tim Reset Password', // Subject line
-          // eslint-disable-next-line max-len
-          html: '<h1>Hey,</h1><br><p>If you want to reset your password, please click on the following link:</p><p><a href="' + 'http://localhost:3000/auth/confirm-password/' + user._id + '">"' + 'http://localhost:3000/auth/confirm-email/' + user._id + + '"</a><br><br>If you did not ask for it, please let us know immediately at <a href="mailto:' + smtpConf.auth.user + '">' + smtpConf.auth.user + '</a></p>', // html body
+    if (!IS_DEMO) {
+      try {
+        await sendEmail({
+          to: email,
+          subject: `${APP_NAME} - Reset your password`,
+          html: `<h1>Hello,</h1><p>You requested a password reset. Use the code <strong>${code}</strong> or click the button below within 30 minutes.</p><p><a href="${resetLink}" style="display:inline-block;padding:10px 16px;background:#5e72e4;color:#fff;border-radius:4px;text-decoration:none;">Reset Password</a></p><p>If you did not request this reset please contact <a href="mailto:${smtpConf.auth.user}">${smtpConf.auth.user}</a>.</p>`,
         });
-        res.json({success: true});
+      } catch (mailErr) {
+        console.log('Error sending forgot password email', mailErr);
       }
-      res.json({success: true, userID: user[0]._id});
     }
-  });
+
+    await createLog({userId: user._id, action: 'user.password_reset.request'});
+    return res.json({success: true, userID: user._id, resetCode: IS_DEMO ? code : null});
+  } catch (err) {
+    console.log('Error processing forgot password', err);
+    return res.status(500).json({success: false, errors: [{msg: 'There was an error processing the request'}]});
+  }
 });
 
-router.post('/register', (req, res) => {
-  const {name, email, password} = req.body;
+router.post('/register', async (req, res) => {
+  const {name, email, password, phone, agency} = req.body;
 
-  User.findOne({email: email}).then((user) => {
-    if (user) {
-      res.json({success: false, msg: 'Email already exists'});
-    } else if (password.length < 6) {
-      // eslint-disable-next-line max-len
-      res.json({success: false, msg: 'Password must be at least 6 characters long'});
-    } else {
-      bcrypt.genSalt(10, (err, salt) => {
-        bcrypt.hash(password, salt, null, (err, hash) => {
-          if (err) throw err;
-          const query = {name: name, email: email,
-            password: hash};
-          User.create(query, function(err, user) {
-            if (err) throw err;
+  const respondWithError = function(message) {
+    return res.status(400).json({success: false, msg: message});
+  };
 
-            const transporter = nodemailer.createTransport(smtpConf);
+  if (!name || !email || !password) {
+    return respondWithError('Please enter all fields');
+  }
 
-            // don't send emails if it is in demo mode
-            if (process.env.DEMO != 'yes') {
-            // send mail with defined transport object
-              transporter.sendMail({
-                from: '"Creative Tim" <' + smtpConf.auth.user + '>',
-                to: email, // list of receivers
-                subject: 'Creative Tim Confirm Account', // Subject line
-                // eslint-disable-next-line max-len
-                html: '<h1>Hey,</h1><br><p>Confirm your new account </p><p><a href="' + 'http://localhost:3000/auth/confirm-email/' + user._id + '">"' + 'http://localhost:3000/auth/confirm-email/' + user._id + '"</a><br><br>If you did not ask for it, please let us know immediately at <a href="mailto:' + smtpConf.auth.user + '">' + smtpConf.auth.user + '</a></p>', // html body
-              });
-              // eslint-disable-next-line max-len
-              res.json({success: true, msg: 'The user was succesfully registered'});
-            }
-            // eslint-disable-next-line max-len
-            res.json({success: true, userID: user._id, msg: 'The user was succesfully registered'});
-          });
+  if (password.length < 8) {
+    return respondWithError('Password must be at least 8 characters long');
+  }
+
+  try {
+    const existingUser = await User.findByEmail(email);
+    if (existingUser) {
+      return respondWithError('Email already exists');
+    }
+
+    const hash = await bcrypt.hash(password, 12);
+    const user = await User.create({
+      name,
+      email,
+      password: hash,
+      role: 'user',
+      isActive: false,
+      accountConfirmation: false,
+      resetPass: false,
+      profile: {
+        phone: phone || null,
+        agency: agency || null,
+      },
+    });
+
+    const {code} = await VerificationCode.createCode(user._id, PURPOSES.EMAIL_CONFIRMATION, 60);
+    const confirmationLink = `${CLIENT_URL}/auth/confirm-email/${user._id}?code=${code}`;
+
+    if (!IS_DEMO) {
+      try {
+        await sendEmail({
+          to: email,
+          subject: `${APP_NAME} - Confirm your account`,
+          html: `<h1>Welcome!</h1><p>Use the confirmation code <strong>${code}</strong> to activate your account or click the button below.</p><p><a href="${confirmationLink}" style="display:inline-block;padding:10px 16px;background:#5e72e4;color:#fff;border-radius:4px;text-decoration:none;">Confirm account</a></p><p>If you did not create this account please ignore this email or contact <a href="mailto:${smtpConf.auth.user}">${smtpConf.auth.user}</a>.</p>`,
         });
-      });
+      } catch (mailErr) {
+        console.log('Error sending confirmation email', mailErr);
+      }
     }
-  });
+
+    await createLog({userId: user._id, action: 'user.register'});
+    return res.json({
+      success: true,
+      userID: user._id,
+      msg: 'The user was succesfully registered',
+      confirmationCode: IS_DEMO ? code : null,
+    });
+  } catch (err) {
+    console.log('Error registering user', err);
+    return respondWithError('There was an error. Please try again later');
+  }
 });
 
-router.post('/confirm/:id', (req, res) => {
+router.post('/confirm/:id', async (req, res) => {
   const userID = req.params.id;
+  const code = (req.body && req.body.code) || req.query.code;
 
-  const query = {_id: userID};
+  if (!code) {
+    return res.status(400).json({success: false, msg: 'Confirmation code is required'});
+  }
 
-  const newvalues = {$set: {accountConfirmation: true}};
-  User.updateOne(query, newvalues, function(err, usr) {
-    if (err) {
-      res.json({success: false});
+  try {
+    const isValid = await VerificationCode.consumeCode(userID, PURPOSES.EMAIL_CONFIRMATION, code);
+    if (!isValid) {
+      return res.status(400).json({success: false, msg: 'Invalid or expired confirmation code'});
     }
-    res.json({success: true});
-  });
+
+    await User.markAccountConfirmed(userID);
+    await createLog({userId: userID, action: 'user.confirm_email'});
+    return res.json({success: true});
+  } catch (err) {
+    console.log('Error confirming user', err);
+    return res.status(500).json({success: false, msg: 'Unable to confirm the account'});
+  }
 });
 
-router.post('/login', (req, res) => {
+router.post('/login', async (req, res) => {
   const email = req.body.email;
   const password = req.body.password;
 
-  User.findOne({email: email}, (err, user) => {
-    if (err) throw err;
-
+  try {
+    const user = await User.findByEmail(email);
     if (!user) {
+      await createLog({userId: null, action: 'user.login.failed', details: `Unknown email ${email}`});
       return res.json({success: false, msg: 'Wrong credentials'});
     }
 
@@ -215,42 +310,66 @@ router.post('/login', (req, res) => {
       return res.json({success: false, msg: 'Account is not confirmed'});
     }
 
-    bcrypt.compare(password, user.password, function(err, isMatch) {
-      if (isMatch) {
-        const token = jwt.sign(user, config.secret, {
-          expiresIn: 86400, // 1 week
-        });
-        // Don't include the password in the returned user object
-        const query = {userId: user._id, token: 'JWT ' + token};
-        ActiveSession.create(query, function(err, cd) {
-          user.password = null;
-          user.__v = null;
-          return res.json({
-            success: true,
-            token: 'JWT ' + token,
-            user,
-          });
-        });
-      } else {
-        return res.json({success: false, msg: 'Wrong credentials'});
-      }
+    if (!user.isActive) {
+      return res.json({success: false, msg: 'Account is disabled. Contact support.'});
+    }
+
+    const isMatch = await bcrypt.compare(password, user.password).catch(() => false);
+    if (!isMatch) {
+      await createLog({userId: user._id, action: 'user.login.failed', details: 'Wrong password'});
+      return res.json({success: false, msg: 'Wrong credentials'});
+    }
+
+    const payload = {
+      _id: user._id,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+      accountConfirmation: user.accountConfirmation,
+    };
+    const token = jwt.sign(payload, secret, {
+      expiresIn: 86400, // 1 day
     });
-  });
+
+    await ActiveSession.create({
+      userId: user._id,
+      token: 'JWT ' + token,
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent'),
+    });
+
+    await User.setLastLogin(user._id);
+    await createLog({userId: user._id, action: 'user.login'});
+
+    const safeUser = sanitizeUserForResponse(user);
+    return res.json({
+      success: true,
+      token: 'JWT ' + token,
+      user: safeUser,
+    });
+  } catch (err) {
+    console.log('Error finding user on login', err);
+    return res.status(500).json({success: false, msg: 'There was an error. Please try again later'});
+  }
 });
 
 router.post('/checkSession', reqAuth, function(req, res) {
   res.json({success: true});
 });
 
-router.post('/logout', reqAuth, function(req, res) {
+router.post('/logout', reqAuth, async function(req, res) {
   const token = req.body.token;
-  ActiveSession.deleteMany({token: token}, function(err, item) {
-    if (err) {
-      res.json({success: false});
-    }
-    res.json({success: true});
-  });
+  if (!token) {
+    return res.status(400).json({success: false, msg: 'Missing session token'});
+  }
+  try {
+    await ActiveSession.deleteByToken(token);
+    await createLog({userId: req.user._id, action: 'user.logout'});
+    return res.json({success: true});
+  } catch (err) {
+    console.log('Error deleting session on logout', err);
+    return res.status(500).json({success: false});
+  }
 });
-
 
 module.exports = router;
