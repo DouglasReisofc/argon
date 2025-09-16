@@ -23,58 +23,62 @@ const router = express.Router();
 const bcrypt = require('bcrypt-nodejs');
 const nodemailer = require('nodemailer');
 const jwt = require('jsonwebtoken');
-const config = require('../config/keys');
+const {secret} = require('../config/keys');
 const User = require('../models/user');
 const ActiveSession = require('../models/activeSession');
 const reqAuth = require('../config/safeRoutes').reqAuth;
 const {smtpConf} = require('../config/config');
+
 // route /admin/users/
 
-router.post('/all', reqAuth, function(req, res) {
-  User.find({}, function(err, users) {
-    if (err) {
-      res.json({success: false});
-    }
-    users = users.map(function(item) {
-      const x = item;
+router.post('/all', reqAuth, async function(req, res) {
+  try {
+    const users = await User.findAll();
+    const sanitizedUsers = users.map(function(item) {
+      const x = {...item};
       x.password = undefined;
       x.__v = undefined;
       return x;
     });
-    res.json({success: true, users: users});
-  });
+    res.json({success: true, users: sanitizedUsers});
+  } catch (err) {
+    console.log('Error fetching users', err);
+    res.json({success: false});
+  }
 });
 
-router.post('/edit', reqAuth, function(req, res) {
+router.post('/edit', reqAuth, async function(req, res) {
   const {userID, name, email} = req.body;
 
-  User.find({_id: userID}).then((user) => {
-    if (user.length == 1) {
-      const query = {_id: user[0]._id};
-      const newvalues = {$set: {name: name, email: email}};
-      User.updateOne(query, newvalues, function(err, cb) {
-        if (err) {
-          // eslint-disable-next-line max-len
-          res.json({success: false, msg: 'There was an error. Please contract the administator'});
-        }
-        res.json({success: true});
-      });
-    } else {
-      res.json({success: false});
+  try {
+    const user = await User.findById(userID);
+    if (!user) {
+      return res.json({success: false});
     }
-  });
+
+    const updated = await User.updateById(user._id, {name: name, email: email});
+    if (!updated) {
+      return res.json({success: false, msg: 'There was an error. Please contract the administator'});
+    }
+
+    return res.json({success: true});
+  } catch (err) {
+    console.log('Error updating user', err);
+    return res.json({success: false, msg: 'There was an error. Please contract the administator'});
+  }
 });
 
-
-router.post('/check/resetpass/:id', (req, res) => {
+router.post('/check/resetpass/:id', async (req, res) => {
   const userID = req.params.id;
-  User.find({_id: userID}).then((user) => {
-    if (user.length == 1 && user[0].resetPass == true) {
-      res.json({success: true}); // reset password was made for this user
-    } else {
-      res.json({success: false});
+  try {
+    const user = await User.findById(userID);
+    if (user && user.resetPass === true) {
+      return res.json({success: true}); // reset password was made for this user
     }
-  });
+  } catch (err) {
+    console.log('Error checking reset password flag', err);
+  }
+  return res.json({success: false});
 });
 
 router.post('/resetpass/:id', (req, res) => {
@@ -83,130 +87,165 @@ router.post('/resetpass/:id', (req, res) => {
 
   let {password} = req.body;
 
-  if (password.length < 6) {
+  if (!password || password.length < 6) {
     errors.push({msg: 'Password must be at least 6 characters'});
   }
   if (errors.length > 0) {
-    res.json({success: false, msg: errors});
-  } else {
-    const query = {_id: userID};
-    bcrypt.genSalt(10, (err, salt) => {
-      bcrypt.hash(password, salt, null, (err, hash) => {
-        if (err) throw err;
-        password = hash;
-        const newvalues = {$set: {resetPass: false, password: password}};
-        User.updateOne(query, newvalues, function(err, usr) {
-          if (err) {
-            res.json({success: false, msg: err});
-          }
-          res.json({success: true});
-        });
-      });
-    });
+    return res.json({success: false, msg: errors});
   }
+
+  bcrypt.genSalt(10, (err, salt) => {
+    if (err) {
+      console.log('Error generating salt for password reset', err);
+      return res.json({success: false, msg: 'There was an error resetting the password'});
+    }
+    bcrypt.hash(password, salt, null, async (err, hash) => {
+      if (err) {
+        console.log('Error hashing password for reset', err);
+        return res.json({success: false, msg: 'There was an error resetting the password'});
+      }
+      try {
+        password = hash;
+        const updated = await User.updateById(userID, {resetPass: false, password: password});
+        if (!updated) {
+          return res.json({success: false, msg: 'There was an error resetting the password'});
+        }
+        return res.json({success: true});
+      } catch (updateErr) {
+        console.log('Error updating password', updateErr);
+        return res.json({success: false, msg: updateErr});
+      }
+    });
+  });
 });
 
-router.post('/forgotpassword', (req, res) => {
+router.post('/forgotpassword', async (req, res) => {
   const {email} = req.body;
   const errors = [];
 
   if (!email) {
     errors.push({msg: 'Please enter all fields'});
   }
-  User.find({email: email}).then((user) => {
-    if (user.length != 1) {
+  try {
+    const user = await User.findByEmail(email);
+    if (!user) {
       errors.push({msg: 'Email Address does not exist'});
     }
     if (errors.length > 0) {
-      res.json({success: false, errors: errors});
-    } else {
-      // create reusable transporter object using the default SMTP transport
-      const transporter = nodemailer.createTransport(smtpConf);
+      return res.json({success: false, errors: errors});
+    }
 
-      const query = {_id: user[0]._id};
-      const newvalues = {$set: {resetPass: true}};
-      User.updateOne(query, newvalues, function(err, usr) {});
+    // create reusable transporter object using the default SMTP transport
+    const transporter = nodemailer.createTransport(smtpConf);
 
-      // don't send emails if it is in demo mode
-      if (process.env.DEMO != 'yes') {
+    await User.updateById(user._id, {resetPass: true});
+
+    // don't send emails if it is in demo mode
+    if (process.env.DEMO != 'yes') {
+      try {
         // send mail with defined transport object
-        transporter.sendMail({
+        await transporter.sendMail({
           from: '"Creative Tim" <' + smtpConf.auth.user + '>', // sender address
           to: email, // list of receivers
           subject: 'Creative Tim Reset Password', // Subject line
           // eslint-disable-next-line max-len
-          html: '<h1>Hey,</h1><br><p>If you want to reset your password, please click on the following link:</p><p><a href="' + 'http://localhost:3000/auth/confirm-password/' + user._id + '">"' + 'http://localhost:3000/auth/confirm-email/' + user._id + + '"</a><br><br>If you did not ask for it, please let us know immediately at <a href="mailto:' + smtpConf.auth.user + '">' + smtpConf.auth.user + '</a></p>', // html body
+          html: '<h1>Hey,</h1><br><p>If you want to reset your password, please click on the following link:</p><p><a href="' + 'http://localhost:3000/auth/confirm-password/' + user._id + '">"' + 'http://localhost:3000/auth/confirm-password/' + user._id + '"</a><br><br>If you did not ask for it, please let us know immediately at <a href="mailto:' + smtpConf.auth.user + '">' + smtpConf.auth.user + '</a></p>', // html body
         });
-        res.json({success: true});
+      } catch (mailErr) {
+        console.log('Error sending forgot password email', mailErr);
       }
-      res.json({success: true, userID: user[0]._id});
     }
-  });
+    return res.json({success: true, userID: user._id});
+  } catch (err) {
+    console.log('Error processing forgot password', err);
+    return res.json({success: false, errors: [{msg: 'There was an error processing the request'}]});
+  }
 });
 
 router.post('/register', (req, res) => {
   const {name, email, password} = req.body;
 
-  User.findOne({email: email}).then((user) => {
-    if (user) {
-      res.json({success: false, msg: 'Email already exists'});
-    } else if (password.length < 6) {
-      // eslint-disable-next-line max-len
-      res.json({success: false, msg: 'Password must be at least 6 characters long'});
-    } else {
-      bcrypt.genSalt(10, (err, salt) => {
-        bcrypt.hash(password, salt, null, (err, hash) => {
-          if (err) throw err;
-          const query = {name: name, email: email,
-            password: hash};
-          User.create(query, function(err, user) {
-            if (err) throw err;
+  const respondWithError = function(message) {
+    return res.json({success: false, msg: message});
+  };
 
-            const transporter = nodemailer.createTransport(smtpConf);
+  if (!name || !email || !password) {
+    return respondWithError('Please enter all fields');
+  }
 
-            // don't send emails if it is in demo mode
-            if (process.env.DEMO != 'yes') {
-            // send mail with defined transport object
-              transporter.sendMail({
+  if (password.length < 6) {
+    return respondWithError('Password must be at least 6 characters long');
+  }
+
+  User.findByEmail(email).then((existingUser) => {
+    if (existingUser) {
+      return respondWithError('Email already exists');
+    }
+
+    bcrypt.genSalt(10, (err, salt) => {
+      if (err) {
+        console.log('Error generating salt for register', err);
+        return respondWithError('There was an error. Please try again later');
+      }
+      bcrypt.hash(password, salt, null, async (err, hash) => {
+        if (err) {
+          console.log('Error hashing password for register', err);
+          return respondWithError('There was an error. Please try again later');
+        }
+        try {
+          const user = await User.create({name: name, email: email, password: hash});
+
+          const transporter = nodemailer.createTransport(smtpConf);
+
+          // don't send emails if it is in demo mode
+          if (process.env.DEMO != 'yes') {
+            try {
+              // send mail with defined transport object
+              await transporter.sendMail({
                 from: '"Creative Tim" <' + smtpConf.auth.user + '>',
                 to: email, // list of receivers
                 subject: 'Creative Tim Confirm Account', // Subject line
                 // eslint-disable-next-line max-len
                 html: '<h1>Hey,</h1><br><p>Confirm your new account </p><p><a href="' + 'http://localhost:3000/auth/confirm-email/' + user._id + '">"' + 'http://localhost:3000/auth/confirm-email/' + user._id + '"</a><br><br>If you did not ask for it, please let us know immediately at <a href="mailto:' + smtpConf.auth.user + '">' + smtpConf.auth.user + '</a></p>', // html body
               });
-              // eslint-disable-next-line max-len
-              res.json({success: true, msg: 'The user was succesfully registered'});
+            } catch (mailErr) {
+              console.log('Error sending confirmation email', mailErr);
             }
-            // eslint-disable-next-line max-len
-            res.json({success: true, userID: user._id, msg: 'The user was succesfully registered'});
-          });
-        });
+            return res.json({success: true, msg: 'The user was succesfully registered'});
+          }
+          return res.json({success: true, userID: user._id, msg: 'The user was succesfully registered'});
+        } catch (createErr) {
+          console.log('Error creating user', createErr);
+          return respondWithError('There was an error. Please try again later');
+        }
       });
-    }
+    });
+  }).catch((err) => {
+    console.log('Error checking existing user', err);
+    return respondWithError('There was an error. Please try again later');
   });
 });
 
-router.post('/confirm/:id', (req, res) => {
+router.post('/confirm/:id', async (req, res) => {
   const userID = req.params.id;
 
-  const query = {_id: userID};
-
-  const newvalues = {$set: {accountConfirmation: true}};
-  User.updateOne(query, newvalues, function(err, usr) {
-    if (err) {
-      res.json({success: false});
+  try {
+    const user = await User.updateById(userID, {accountConfirmation: true});
+    if (!user) {
+      return res.json({success: false});
     }
-    res.json({success: true});
-  });
+    return res.json({success: true});
+  } catch (err) {
+    console.log('Error confirming user', err);
+    return res.json({success: false});
+  }
 });
 
 router.post('/login', (req, res) => {
   const email = req.body.email;
   const password = req.body.password;
 
-  User.findOne({email: email}, (err, user) => {
-    if (err) throw err;
-
+  User.findByEmail(email).then((user) => {
     if (!user) {
       return res.json({success: false, msg: 'Wrong credentials'});
     }
@@ -215,26 +254,41 @@ router.post('/login', (req, res) => {
       return res.json({success: false, msg: 'Account is not confirmed'});
     }
 
-    bcrypt.compare(password, user.password, function(err, isMatch) {
+    bcrypt.compare(password, user.password, async function(err, isMatch) {
+      if (err) {
+        console.log('Error comparing passwords on login', err);
+        return res.json({success: false, msg: 'Wrong credentials'});
+      }
       if (isMatch) {
-        const token = jwt.sign(user, config.secret, {
-          expiresIn: 86400, // 1 week
-        });
-        // Don't include the password in the returned user object
-        const query = {userId: user._id, token: 'JWT ' + token};
-        ActiveSession.create(query, function(err, cd) {
+        try {
+          const payload = {
+            _id: user._id,
+            name: user.name,
+            email: user.email,
+            accountConfirmation: user.accountConfirmation,
+          };
+          const token = jwt.sign(payload, secret, {
+            expiresIn: 86400, // 1 week
+          });
+          // Don't include the password in the returned user object
+          await ActiveSession.create({userId: user._id, token: 'JWT ' + token});
           user.password = null;
-          user.__v = null;
           return res.json({
             success: true,
             token: 'JWT ' + token,
             user,
           });
-        });
+        } catch (sessionErr) {
+          console.log('Error creating active session', sessionErr);
+          return res.json({success: false, msg: 'There was an error. Please try again later'});
+        }
       } else {
         return res.json({success: false, msg: 'Wrong credentials'});
       }
     });
+  }).catch((err) => {
+    console.log('Error finding user on login', err);
+    return res.json({success: false, msg: 'Wrong credentials'});
   });
 });
 
@@ -242,15 +296,15 @@ router.post('/checkSession', reqAuth, function(req, res) {
   res.json({success: true});
 });
 
-router.post('/logout', reqAuth, function(req, res) {
+router.post('/logout', reqAuth, async function(req, res) {
   const token = req.body.token;
-  ActiveSession.deleteMany({token: token}, function(err, item) {
-    if (err) {
-      res.json({success: false});
-    }
-    res.json({success: true});
-  });
+  try {
+    await ActiveSession.deleteByToken(token);
+    return res.json({success: true});
+  } catch (err) {
+    console.log('Error deleting session on logout', err);
+    return res.json({success: false});
+  }
 });
-
 
 module.exports = router;

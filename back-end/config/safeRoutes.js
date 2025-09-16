@@ -19,15 +19,23 @@
 */
 const ActiveSession = require('../models/activeSession');
 
-const reqAuth = (req, res, next) => {
-  const token = String(req.headers.authorization);
-  ActiveSession.find({token: token}, function(err, session) {
-    if (session.length == 1) {
+const reqAuth = async (req, res, next) => {
+  const token = String(req.headers.authorization || '');
+
+  if (!token) {
+    return res.json({success: false, msg: 'User is not logged on'});
+  }
+
+  try {
+    const session = await ActiveSession.findByToken(token);
+    if (session) {
       return next();
-    } else {
-      return res.json({success: false, msg: 'User is not logged on'});
     }
-  });
+  } catch (err) {
+    console.log('Error checking active session', err);
+  }
+
+  return res.json({success: false, msg: 'User is not logged on'});
 };
 
 module.exports = {
