@@ -18,26 +18,45 @@
 
 */
 const ActiveSession = require('../models/activeSession');
+const User = require('../models/user');
 
 const reqAuth = async (req, res, next) => {
-  const token = String(req.headers.authorization || '');
+  const token = String(req.headers.authorization || '').trim();
 
   if (!token) {
-    return res.json({success: false, msg: 'User is not logged on'});
+    return res.status(401).json({success: false, msg: 'User is not logged on'});
   }
 
   try {
     const session = await ActiveSession.findByToken(token);
-    if (session) {
-      return next();
+    if (!session) {
+      return res.status(401).json({success: false, msg: 'User is not logged on'});
     }
+
+    const user = await User.findById(session.userId);
+    if (!user || !user.isActive) {
+      return res.status(403).json({success: false, msg: 'Account is not active'});
+    }
+
+    await ActiveSession.touch(token);
+
+    req.user = user;
+    req.session = session;
+    return next();
   } catch (err) {
     console.log('Error checking active session', err);
+    return res.status(500).json({success: false, msg: 'Unable to verify session'});
   }
+};
 
-  return res.json({success: false, msg: 'User is not logged on'});
+const requireAdmin = (req, res, next) => {
+  if (req.user && req.user.role === 'admin') {
+    return next();
+  }
+  return res.status(403).json({success: false, msg: 'Admin privileges required'});
 };
 
 module.exports = {
-  reqAuth: reqAuth,
+  reqAuth,
+  requireAdmin,
 };

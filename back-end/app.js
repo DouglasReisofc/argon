@@ -64,7 +64,7 @@ const tokensCleanUp = new CronJob('10 3 * * *', function() {
 });
 tokensCleanUp.start();
 
-const PORT = process.env.PORT;
+const PORT = process.env.PORT || 5100;
 
 
 http.createServer({}, app)

@@ -41,11 +41,14 @@ const Register = () => {
     const [email, setEmail] = useState("");
     const [password, setPassword] = useState("");
     const [confirmPassword, setConfirmPassword] = useState("");
+    const [phone, setPhone] = useState("");
+    const [agency, setAgency] = useState("");
     const [checkbox, setCheckbox] = useState(false);
     const [error, setError] = useState("");
     const [showToast, setShowToast] = useState(false);
     const [toastMessage, setToastMessage] = useState("Email sent! Check it to reset your password.");
     const [userID, setUserID] = useState(null);
+    const [confirmationCode, setConfirmationCode] = useState(null);
 
     const registerUser = async () => {
         if (!(name && email && password && confirmPassword && checkbox)) {
@@ -57,23 +60,34 @@ const Register = () => {
             setError("Passwords do not match");
             return;
         }
-        const response = await register(name, email, password);
-        const {data} = response;
-        if (!data.success) {
-            setError(data.msg);
-            return;
+        try {
+            const response = await register(name, email, password, phone, agency, null);
+            const {data} = response;
+            if (!data.success) {
+                setError(data.msg);
+                return;
+            }
+            if (config.DEMO) {
+                setToastMessage("This is a demo environment. Use the information below to verify your account:");
+                setUserID(data.userID);
+                setConfirmationCode(data.confirmationCode);
+            } else {
+                setToastMessage("Account created! Check your email for the confirmation code.");
+                setUserID(null);
+                setConfirmationCode(null);
+            }
+            setError("");
+            setName("");
+            setEmail("");
+            setPassword("");
+            setConfirmPassword("");
+            setPhone("");
+            setAgency("");
+            setCheckbox(false);
+            setShowToast(true);
+        } catch (e) {
+            setError("Unable to register at the moment. Please try again later.");
         }
-        if (config.DEMO) {
-            setToastMessage("This is a demo, so we will not send you an email. Instead, click on this link to verify your account:")
-            setUserID(data.userID);
-        }
-        setError("");
-        setName("");
-        setEmail("");
-        setPassword("");
-        setConfirmPassword("");
-        setCheckbox(false);
-        setShowToast(true);
     };
 
     return (
@@ -102,11 +116,22 @@ const Register = () => {
                         <img style={{height: "30px", width: "100px"}} src={require("assets/img/brand/argon-react.png").default}  alt="..."/>
                     </Toast.Header>
                     <Toast.Body>
-                        {toastMessage}
-                        {config.DEMO ?
-                            <a href={config.DOMAIN_NAME + '/auth/confirm-email/' + userID}>
-                                {config.DOMAIN_NAME + '/auth/confirm-email/' + userID}
-                            </a> : null}
+                        <div>{toastMessage}</div>
+                        {config.DEMO && userID ? (
+                            <>
+                                <div className="mt-2">
+                                    <strong>Link:</strong>{' '}
+                                    <a href={config.DOMAIN_NAME + '/auth/confirm-email/' + userID}>
+                                        {config.DOMAIN_NAME + '/auth/confirm-email/' + userID}
+                                    </a>
+                                </div>
+                                {confirmationCode ? (
+                                    <div className="mt-2">
+                                        <strong>Confirmation code:</strong> {confirmationCode}
+                                    </div>
+                                ) : null}
+                            </>
+                        ) : null}
                     </Toast.Body>
                 </Toast>
             </div>
@@ -169,6 +194,26 @@ const Register = () => {
                                     </InputGroupText>
                                     <Input placeholder="Email" type="email" autoComplete="new-email" value={email}
                                            onChange={e => setEmail(e.target.value)}
+                                    />
+                                </InputGroup>
+                            </FormGroup>
+                            <FormGroup>
+                                <InputGroup className="input-group-alternative mb-3">
+                                    <InputGroupText>
+                                        <i className="ni ni-mobile-button"/>
+                                    </InputGroupText>
+                                    <Input placeholder="Phone" type="tel" autoComplete="tel" value={phone}
+                                           onChange={e => setPhone(e.target.value)}
+                                    />
+                                </InputGroup>
+                            </FormGroup>
+                            <FormGroup>
+                                <InputGroup className="input-group-alternative mb-3">
+                                    <InputGroupText>
+                                        <i className="ni ni-briefcase-24"/>
+                                    </InputGroupText>
+                                    <Input placeholder="Agency / Company" type="text" value={agency}
+                                           onChange={e => setAgency(e.target.value)}
                                     />
                                 </InputGroup>
                             </FormGroup>

@@ -17,15 +17,24 @@
 * The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
 
 */
+const smtpUser = process.env.SMTP_USER || 'contactgestorvip@gmail.com';
+const smtpPass = process.env.SMTP_PASS || 'jwzkeloezpvrggfn';
+const clientAppUrl = process.env.CLIENT_APP_URL || 'http://localhost:3000';
+
 module.exports = {
   smtpConf: {
-    host: 'smtp.googlemail.com', // Gmail Host
-    port: 465, // Port
-    secure: true, // this is true as port is 465
+    host: process.env.SMTP_HOST || 'smtp.gmail.com',
+    port: Number(process.env.SMTP_PORT) || 465,
+    secure: (process.env.SMTP_SECURE || 'true').toLowerCase() !== 'false',
     auth: {
-      user: 'test@gmail.com', // Gmail username
-      pass: 'password', // Gmail password
+      user: smtpUser,
+      pass: smtpPass,
     },
   },
-  webURL: 'https://localhost:5100/',
+  webURL: process.env.WEB_URL || 'http://localhost:5100/',
+  clientAppUrl,
+  adminCredentials: {
+    email: process.env.ADMIN_EMAIL || 'contactgestorvip@gmail.com',
+    password: process.env.ADMIN_PASSWORD || 'Dev7766@#$%',
+  },
 };

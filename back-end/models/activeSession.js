@@ -33,7 +33,10 @@ function mapSessionRow(row) {
     _id: row.id != null ? String(row.id) : null,
     token: row.token,
     userId: row.user_id != null ? String(row.user_id) : null,
+    ipAddress: row.ip_address || null,
+    userAgent: row.user_agent || null,
     date: row.created_at,
+    lastSeen: row.last_seen,
   };
 }
 
@@ -44,7 +47,7 @@ function mapSessionRow(row) {
  */
 async function findByToken(token) {
   const [rows] = await mysqlPool.query(`
-    SELECT id, token, user_id, created_at
+    SELECT id, token, user_id, ip_address, user_agent, created_at, last_seen
     FROM active_sessions
     WHERE token = ?
     LIMIT 1
@@ -60,14 +63,24 @@ async function findByToken(token) {
 async function create(session) {
   const now = new Date();
   const [result] = await mysqlPool.query(`
-    INSERT INTO active_sessions (token, user_id, created_at)
-    VALUES (?, ?, ?)
-  `, [session.token, String(session.userId), now]);
+    INSERT INTO active_sessions (token, user_id, ip_address, user_agent, created_at, last_seen)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `, [
+    session.token,
+    Number(session.userId),
+    session.ipAddress || null,
+    session.userAgent || null,
+    now,
+    now,
+  ]);
   return {
     _id: result.insertId != null ? String(result.insertId) : null,
     token: session.token,
     userId: String(session.userId),
+    ipAddress: session.ipAddress || null,
+    userAgent: session.userAgent || null,
     date: now,
+    lastSeen: now,
   };
 }
 
@@ -79,6 +92,19 @@ async function create(session) {
 async function deleteByToken(token) {
   await mysqlPool.query(`
     DELETE FROM active_sessions
+    WHERE token = ?
+  `, [token]);
+}
+
+/**
+ * Update last seen timestamp for session.
+ * @param {string} token session token.
+ * @return {Promise<void>} promise.
+ */
+async function touch(token) {
+  await mysqlPool.query(`
+    UPDATE active_sessions
+    SET last_seen = CURRENT_TIMESTAMP
     WHERE token = ?
   `, [token]);
 }
@@ -100,4 +126,5 @@ module.exports = {
   create,
   deleteByToken,
   deleteOlderThan,
+  touch,
 };
