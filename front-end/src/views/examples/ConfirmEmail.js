@@ -11,22 +11,38 @@ const ConfirmEmail = props => {
     useEffect(() => {
         if (!id) {
             setValid(false);
-        } else {
-            const runAsync = async () => {
-                const response = await confirmRegister(id);
-                const {data} = response;
-                console.log(data);
-                if (!data.success) {
-                    setValid(false);
-                } else {
-                    setTimeout(() => {
-                        props.history.push('/auth/login');
-                    }, 5000);
-                }
-            }
-            runAsync();
+            return;
         }
-    }, [])
+
+        let isMounted = true;
+        let redirectTimeout = null;
+
+        const runAsync = async () => {
+            const response = await confirmRegister(id);
+            const {data} = response;
+
+            if (!isMounted) {
+                return;
+            }
+
+            if (!data.success) {
+                setValid(false);
+            } else {
+                redirectTimeout = window.setTimeout(() => {
+                    props.history.push('/auth/login');
+                }, 5000);
+            }
+        };
+
+        runAsync();
+
+        return () => {
+            isMounted = false;
+            if (redirectTimeout) {
+                clearTimeout(redirectTimeout);
+            }
+        };
+    }, [id, props.history]);
 
     return (
         <>

@@ -26,7 +26,6 @@ import {
     FormGroup,
     Form,
     Input,
-    InputGroupAddon,
     InputGroupText,
     InputGroup,
     Row,
@@ -100,22 +99,18 @@ const Login = props => {
                         <Form role="form">
                             <FormGroup className="mb-3">
                                 <InputGroup className="input-group-alternative">
-                                    <InputGroupAddon addonType="prepend">
-                                        <InputGroupText>
-                                            <i className="ni ni-email-83"/>
-                                        </InputGroupText>
-                                    </InputGroupAddon>
+                                    <InputGroupText>
+                                        <i className="ni ni-email-83"/>
+                                    </InputGroupText>
                                     <Input placeholder="Email" type="email" autoComplete="email" value={email}
                                            onChange={e => setEmail(e.target.value)}/>
                                 </InputGroup>
                             </FormGroup>
                             <FormGroup>
                                 <InputGroup className="input-group-alternative">
-                                    <InputGroupAddon addonType="prepend">
-                                        <InputGroupText>
-                                            <i className="ni ni-lock-circle-open"/>
-                                        </InputGroupText>
-                                    </InputGroupAddon>
+                                    <InputGroupText>
+                                        <i className="ni ni-lock-circle-open"/>
+                                    </InputGroupText>
                                     <Input placeholder="Password" type="password" autoComplete="password" value={password}
                                            onChange={e => setPassword(e.target.value)}/>
                                 </InputGroup>
@@ -150,20 +145,24 @@ const Login = props => {
                 </Card>
                 <Row className="mt-3">
                     <Col xs="6">
-                        <a
-                            className="text-light"
+                        <Button
+                            color="link"
+                            className="text-light p-0"
+                            type="button"
                             onClick={() => props.history.push('/auth/reset-password')}
                         >
                             <small>Forgot password?</small>
-                        </a>
+                        </Button>
                     </Col>
                     <Col className="text-right" xs="6">
-                        <a
-                            className="text-light"
+                        <Button
+                            color="link"
+                            className="text-light p-0"
+                            type="button"
                             onClick={() => props.history.push('/auth/register')}
                         >
                             <small>Create new account</small>
-                        </a>
+                        </Button>
                     </Col>
                 </Row>
             </Col>

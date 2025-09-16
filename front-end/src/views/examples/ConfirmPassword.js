@@ -21,19 +21,15 @@ import React, {useState} from "react";
 import {
     Button,
     Card,
-    CardHeader,
     CardBody,
     FormGroup,
     Form,
     Input,
-    InputGroupAddon,
     InputGroupText,
     InputGroup,
-    Row,
     Col
 } from "reactstrap";
-import {confirmReset, forgotPassword, login} from "../../network/ApiAxios";
-import Toast from "react-bootstrap/Toast";
+import {confirmReset} from "../../network/ApiAxios";
 import {useParams} from "react-router-dom";
 
 const ConfirmPassword = props => {
@@ -66,11 +62,9 @@ const ConfirmPassword = props => {
                         <Form role="form">
                             <FormGroup>
                                 <InputGroup className="input-group-alternative">
-                                    <InputGroupAddon addonType="prepend">
-                                        <InputGroupText>
-                                            <i className="ni ni-lock-circle-open"/>
-                                        </InputGroupText>
-                                    </InputGroupAddon>
+                                    <InputGroupText>
+                                        <i className="ni ni-lock-circle-open"/>
+                                    </InputGroupText>
                                     <Input placeholder="Password" type="password" autoComplete="new-password" value={password}
                                            onChange={e => setPassword(e.target.value)}
                                     />
@@ -78,11 +72,9 @@ const ConfirmPassword = props => {
                             </FormGroup>
                             <FormGroup>
                                 <InputGroup className="input-group-alternative">
-                                    <InputGroupAddon addonType="prepend">
-                                        <InputGroupText>
-                                            <i className="ni ni-lock-circle-open"/>
-                                        </InputGroupText>
-                                    </InputGroupAddon>
+                                    <InputGroupText>
+                                        <i className="ni ni-lock-circle-open"/>
+                                    </InputGroupText>
                                     <Input placeholder="Confirm Password" type="password" autoComplete="new-password" value={confirmPassword}
                                            onChange={e => setConfirmPassword(e.target.value)}
                                     />

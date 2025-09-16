@@ -21,18 +21,15 @@ import React, {useState} from "react";
 import {
     Button,
     Card,
-    CardHeader,
     CardBody,
     FormGroup,
     Form,
     Input,
-    InputGroupAddon,
     InputGroupText,
     InputGroup,
-    Row,
     Col
 } from "reactstrap";
-import {forgotPassword, login} from "../../network/ApiAxios";
+import {forgotPassword} from "../../network/ApiAxios";
 import Toast from "react-bootstrap/Toast";
 import config from "../../config";
 
@@ -99,11 +96,9 @@ const ResetPassword = props => {
                         <Form role="form">
                             <FormGroup className="mb-3">
                                 <InputGroup className="input-group-alternative">
-                                    <InputGroupAddon addonType="prepend">
-                                        <InputGroupText>
-                                            <i className="ni ni-email-83"/>
-                                        </InputGroupText>
-                                    </InputGroupAddon>
+                                    <InputGroupText>
+                                        <i className="ni ni-email-83"/>
+                                    </InputGroupText>
                                     <Input placeholder="Email" type="email" autoComplete="email" value={email}
                                            onChange={e => setEmail(e.target.value)}/>
                                 </InputGroup>
