@@ -18,7 +18,6 @@
 
 */
 const express = require('express');
-const bodyParser = require('body-parser');
 const passport = require('passport');
 const compression = require('compression');
 const http = require('http');
@@ -43,10 +42,10 @@ initializeDatabase()
     .catch((err) => console.log('MySQL connection error', err));
 
 app.use(cors());
-// Express body parser
+// Express body parsing
 app.use('/public', express.static('public'));
-app.use(bodyParser.urlencoded({extended: true}));
-app.use(bodyParser.json());
+app.use(express.urlencoded({extended: true}));
+app.use(express.json());
 
 // REACT BUILD for production
 if (process.env.NODE_ENV === 'PROD') {

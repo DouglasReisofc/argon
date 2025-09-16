@@ -20,7 +20,7 @@
 const express = require('express');
 // eslint-disable-next-line new-cap
 const router = express.Router();
-const bcrypt = require('bcrypt-nodejs');
+const bcrypt = require('bcryptjs');
 const nodemailer = require('nodemailer');
 const jwt = require('jsonwebtoken');
 const {secret} = require('../config/keys');
@@ -99,7 +99,7 @@ router.post('/resetpass/:id', (req, res) => {
       console.log('Error generating salt for password reset', err);
       return res.json({success: false, msg: 'There was an error resetting the password'});
     }
-    bcrypt.hash(password, salt, null, async (err, hash) => {
+    bcrypt.hash(password, salt, async (err, hash) => {
       if (err) {
         console.log('Error hashing password for reset', err);
         return res.json({success: false, msg: 'There was an error resetting the password'});
@@ -187,7 +187,7 @@ router.post('/register', (req, res) => {
         console.log('Error generating salt for register', err);
         return respondWithError('There was an error. Please try again later');
       }
-      bcrypt.hash(password, salt, null, async (err, hash) => {
+      bcrypt.hash(password, salt, async (err, hash) => {
         if (err) {
           console.log('Error hashing password for register', err);
           return respondWithError('There was an error. Please try again later');
